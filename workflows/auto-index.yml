@@ -1,10 +1,9 @@
-name: Generate Index JSON
+name: Update Course Index
 
 on:
   push:
-    branches:
-      - main
-      - master
+    branches: [ "main", "master" ]
+  workflow_dispatch: # Cho phép bấm nút chạy thủ công
 
 permissions:
   contents: write
@@ -16,60 +15,67 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v3
         with:
-          fetch-depth: 0 # Lấy toàn bộ lịch sử để check ngày tháng
+          fetch-depth: 0
 
-      - name: Generate index.json
+      - name: Generate JSON with Python
         run: |
-          echo "[" > index.json
-          FIRST=true
+          python3 -c "
+          import os
+          import json
+          import subprocess
+
+          courses = []
+          # Quét thư mục hiện tại
+          for root, dirs, files in os.walk('.'):
+              # Bỏ qua thư mục .git và .github
+              if '.git' in root: continue
+              
+              if 'khoa-hoc.json' in files:
+                  folder_path = root
+                  folder_name = os.path.basename(folder_path)
+                  
+                  # Lấy đường dẫn file json (bỏ ./ ở đầu)
+                  file_path = os.path.join(root, 'khoa-hoc.json').replace('./', '').replace('.\\\\', '')
+                  
+                  # Tìm ảnh
+                  thumb = ''
+                  for ext in ['jpg', 'jpeg', 'png', 'webp', 'JPG', 'PNG']:
+                      img_name = f'anh-khoa-hoc.{ext}'
+                      if img_name in files:
+                          thumb = os.path.join(root, img_name).replace('./', '').replace('.\\\\', '')
+                          break
+                  
+                  # Lấy ngày update cuối cùng từ git
+                  try:
+                      date_cmd = ['git', 'log', '-1', '--format=%cI', '--', folder_path]
+                      updated_time = subprocess.check_output(date_cmd).decode().strip()
+                  except:
+                      updated_time = ''
+
+                  courses.append({
+                      'name': folder_name,
+                      'folder': folder_name,
+                      'file': file_path,
+                      'thumb': thumb,
+                      'updated': updated_time
+                  })
+
+          # Ghi ra file index.json
+          with open('index.json', 'w', encoding='utf-8') as f:
+              json.dump(courses, f, indent=2, ensure_ascii=False)
           
-          # Tìm tất cả thư mục có chứa file khoa-hoc.json
-          # Sắp xếp theo ngày commit mới nhất của thư mục đó (git log)
-          find . -maxdepth 2 -name "khoa-hoc.json" | while read filename; do
-            dir=$(dirname "$filename")
-            dirname=$(basename "$dir")
-            
-            # Bỏ qua thư mục . (hiện tại)
-            if [ "$dirname" == "." ]; then continue; fi
+          print(f'Đã tìm thấy {len(courses)} khóa học.')
+          "
 
-            # Lấy ngày update cuối cùng của thư mục này
-            last_update=$(git log -1 --format="%cI" -- "$dir")
-            
-            # Tìm file ảnh (jpg, jpeg, png, webp)
-            img=""
-            if [ -f "$dir/anh-khoa-hoc.jpg" ]; then img="$dir/anh-khoa-hoc.jpg"; fi
-            if [ -f "$dir/anh-khoa-hoc.jpeg" ]; then img="$dir/anh-khoa-hoc.jpeg"; fi
-            if [ -f "$dir/anh-khoa-hoc.png" ]; then img="$dir/anh-khoa-hoc.png"; fi
-            if [ -f "$dir/anh-khoa-hoc.webp" ]; then img="$dir/anh-khoa-hoc.webp"; fi
-
-            # Xử lý dấu phẩy JSON
-            if [ "$FIRST" = true ]; then
-              FIRST=false
-            else
-              echo "," >> index.json
-            fi
-
-            # Ghi vào JSON (Escape dấu ngoặc kép trong tên folder)
-            clean_dirname=$(echo "$dirname" | sed 's/"/\\"/g')
-            
-            echo "  {" >> index.json
-            echo "    \"name\": \"$clean_dirname\"," >> index.json
-            echo "    \"folder\": \"$clean_dirname\"," >> index.json
-            echo "    \"file\": \"$dirname/khoa-hoc.json\"," >> index.json
-            echo "    \"thumb\": \"$img\"," >> index.json
-            echo "    \"updated\": \"$last_update\"" >> index.json
-            echo "  }" >> index.json
-          done
-
-          echo "]" >> index.json
-
-          # Format lại JSON cho đẹp (Optional)
-          # cat index.json | python3 -m json.tool > index_pretty.json && mv index_pretty.json index.json
-
-      - name: Commit and Push index.json
+      - name: Commit and Push
         run: |
           git config --global user.name 'github-actions[bot]'
-          git config --global user.email 'github-actions[bot]@users.noreply.github.com'
+          git config --global user.email '41898282+github-actions[bot]@users.noreply.github.com'
           git add index.json
-          # Chỉ commit nếu có thay đổi
-          git diff --quiet && git diff --staged --quiet || (git commit -m "Auto update index.json" && git push)
+          # Kiểm tra xem có thay đổi không mới commit
+          if git diff --staged --quiet; then
+            echo "Không có thay đổi nào để commit."
+          else
+            git commit -m "Auto update index.json [Skip CI]"
+            git push
+          fi
