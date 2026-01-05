@@ -3,12 +3,12 @@ const path = require('path');
 
 // Cấu hình
 const ROOT_DIR = './'; // Thư mục gốc cần quét
-const OUTPUT_FILE = 'courses.json'; // File JSON output
-const EXCLUDE_DIRS = ['node_modules', '.git', '.github']; // Các thư mục bỏ qua
+const OUTPUT_FILE = 'index.json'; // Đổi từ courses.json -> index.json
+const EXCLUDE_DIRS = ['node_modules', '.git', '.github', 'workflows']; // Thêm workflows
 
 /**
  * Chuyển đổi tên folder thành tên khóa học
- * VD: "khoa-hoc-seo-all-in-one" -> "Khóa Học Seo All In One"
+ * VD: "khoa-hoc-seo-all-in-one-truyen-nghe" -> "Khóa Học Seo All In One Truyền Nghề"
  */
 function folderNameToCourseName(folderName) {
   return folderName
@@ -21,10 +21,14 @@ function folderNameToCourseName(folderName) {
  * Kiểm tra xem thư mục có chứa file khóa học không
  */
 function isCourseFolder(dirPath) {
-  const files = fs.readdirSync(dirPath);
-  const hasJson = files.some(f => f.endsWith('.json'));
-  const hasImage = files.some(f => f.match(/\.(png|jpg|jpeg|webp)$/i));
-  return hasJson && hasImage;
+  try {
+    const files = fs.readdirSync(dirPath);
+    const hasJson = files.some(f => f.endsWith('.json'));
+    const hasImage = files.some(f => f.match(/\.(png|jpg|jpeg|webp|gif)$/i));
+    return hasJson && hasImage;
+  } catch (e) {
+    return false;
+  }
 }
 
 /**
@@ -48,11 +52,15 @@ function scanDirectories(rootPath) {
       if (isCourseFolder(folderPath)) {
         const files = fs.readdirSync(folderPath);
         
-        // Tìm file JSON
-        const jsonFile = files.find(f => f.endsWith('.json'));
+        // Tìm file JSON (ưu tiên không phải package.json)
+        const jsonFile = files.find(f => f.endsWith('.json') && f !== 'package.json');
         
-        // Tìm file ảnh (ưu tiên .png)
-        const imageFile = files.find(f => f.match(/\.(png|jpg|jpeg|webp)$/i));
+        // Tìm file ảnh (ưu tiên .png, sau đó .jpg, .jpeg, .webp)
+        const imageFile = files.find(f => f.endsWith('.png')) ||
+                         files.find(f => f.endsWith('.jpg')) ||
+                         files.find(f => f.endsWith('.jpeg')) ||
+                         files.find(f => f.endsWith('.webp')) ||
+                         files.find(f => f.match(/\.(gif)$/i));
         
         if (jsonFile && imageFile) {
           // Đọc file JSON để lấy tên khóa học (nếu có)
@@ -66,9 +74,12 @@ function scanDirectories(rootPath) {
             const jsonData = JSON.parse(jsonContent);
             
             // Nếu JSON có trường name/title/courseName thì dùng
-            courseName = jsonData.name || jsonData.title || jsonData.courseName || courseName;
+            if (jsonData.name || jsonData.title || jsonData.courseName) {
+              courseName = jsonData.name || jsonData.title || jsonData.courseName;
+            }
           } catch (e) {
-            console.warn(`Không đọc được JSON trong ${item.name}, dùng tên folder`);
+            // Nếu JSON bị mã hóa hoặc lỗi, dùng tên folder
+            console.warn(`⚠️  Không đọc được JSON trong ${item.name}, dùng tên folder`);
           }
           
           courses.push({
@@ -76,15 +87,15 @@ function scanDirectories(rootPath) {
             file: `${item.name}/${jsonFile}`,
             thumb: `${item.name}/${imageFile}`
           });
+          
+          console.log(`✓ Tìm thấy: ${item.name}`);
+        } else {
+          console.warn(`⚠️  Folder ${item.name} thiếu ${!jsonFile ? 'file JSON' : 'file ảnh'}`);
         }
       }
-      
-      // Quét đệ quy các thư mục con (nếu cần)
-      // Bỏ comment dòng dưới nếu muốn quét sâu hơn
-      // courses.push(...scanDirectories(folderPath));
     }
   } catch (error) {
-    console.error('Lỗi khi quét thư mục:', error.message);
+    console.error('❌ Lỗi khi quét thư mục:', error.message);
   }
   
   return courses;
@@ -94,11 +105,11 @@ function scanDirectories(rootPath) {
  * Hàm chính
  */
 function main() {
-  console.log('🔍 Bắt đầu quét thư mục...');
+  console.log('🔍 Bắt đầu quét thư mục...\n');
   
   const courses = scanDirectories(ROOT_DIR);
   
-  console.log(`✅ Tìm thấy ${courses.length} khóa học`);
+  console.log(`\n📊 Kết quả: Tìm thấy ${courses.length} khóa học`);
   
   // Ghi ra file JSON
   fs.writeFileSync(
@@ -107,8 +118,8 @@ function main() {
     'utf-8'
   );
   
-  console.log(`📝 Đã tạo file ${OUTPUT_FILE}`);
-  console.log('\n📋 Nội dung:');
+  console.log(`📝 Đã cập nhật file ${OUTPUT_FILE}\n`);
+  console.log('📋 Nội dung:');
   console.log(JSON.stringify(courses, null, 2));
 }
 
